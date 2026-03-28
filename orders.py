@@ -1,45 +1,57 @@
-import json
-import os
+import db
 from menu import menu
+from utils import console, print_error
+from models import Order
+from typing import Dict
+from datetime import datetime
 
-orders_file = 'orders.json'
+def get_sales_list():
+    """Load sales from database."""
+    return db.get_sales()
 
-def take_order():
+def take_order() -> Dict[str, int]:
     """Take an order from the customer."""
-    order = {}
+    order_items = {}
     while True:
-        item = input("\nEnter the item to order (or type 'done' to finish): ").capitalize()
+        console.print("\n[bold cyan]Enter the item to order (or type 'done' to finish):[/bold cyan] ", end="")
+        item = input().strip().capitalize()
+        
         if item == 'Done':
             break
         elif item in menu:
             while True:
                 try:
-                    quantity = int(input(f"How many {item}(s) would you like? "))
+                    console.print(f"[bold cyan]How many {item}(s) would you like?[/bold cyan] ", end="")
+                    quantity = int(input().strip())
                     if quantity <= 0:
-                        print("Please enter a positive number.")
+                        print_error("Please enter a positive number.")
                     else:
                         break
                 except ValueError:
-                    print("Invalid input. Please enter a valid number.")
-            order[item] = order.get(item, 0) + quantity
+                    print_error("Invalid input. Please enter a valid number.")
+            order_items[item] = order_items.get(item, 0) + quantity
         else:
-            print(f"Item {item} not available.")
-    return order
+            print_error(f"Item '{item}' not available on the menu.")
+            
+    return order_items
 
-def calculate_total(order):
+def calculate_total(order_items: Dict[str, int]) -> float:
     """Calculate the total cost of the order."""
-    return sum(menu[item] * quantity for item, quantity in order.items())
+    return sum(menu[item] * quantity for item, quantity in order_items.items())
 
-def load_previous_orders():
-    """Load previous orders from a JSON file."""
-    if os.path.exists(orders_file):
-        with open(orders_file, 'r') as file:
-            return json.load(file)
-    return []
+def save_order(order_items: Dict[str, int], total: float) -> None:
+    """Save the current order to the database."""
+    from uuid import uuid4
+    order_id = f"ORD-{str(uuid4())[:8]}"
+    new_order = {
+        "order_id": order_id,
+        "total": total,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "items": order_items
+    }
+    db.save_order(new_order)
 
-def save_order(order, total):
-    """Save the current order to the orders JSON file."""
-    previous_orders = load_previous_orders()
-    previous_orders.append({"order": order, "total": total})
-    with open(orders_file, 'w') as file:
-        json.dump(previous_orders, file, indent=4)
+def load_previous_orders() -> list:
+    """Return all historical orders."""
+    return db.get_orders()
+

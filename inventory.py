@@ -1,21 +1,30 @@
-inventory = {
-    'Coffee': 50,
-    'Tea': 50,
-    'Sandwich': 30,
-    'Cake': 20
-}
+from utils import print_error, OutofStockError
+from typing import Dict
+import db
 
-def check_inventory(item, quantity):
-    """Check if the item is available in stock."""
-    if item in inventory and inventory[item] >= quantity:
+# Load inventory at module level
+inventory = db.get_inventory()
+
+def check_inventory(item: str, quantity: int) -> bool:
+    """Check if the item is available in stock. Raises OutofStockError if not."""
+    # Refresh inventory from DB to ensure real-time data
+    global inventory
+    inventory = db.get_inventory()
+    
+    stock = inventory.get(item, {}).get("qty", 0)
+    if stock >= quantity:
         return True
-    else:
-        print(f"Insufficient stock for {item}. Only {inventory.get(item, 0)} left.")
-        return False
+    raise OutofStockError(f"Insufficient stock for {item}. Only {stock} remaining.")
 
-def update_inventory(order):
-    """Update the inventory after an order is placed."""
+def update_inventory(order: Dict[str, int]) -> None:
+    """Update the inventory after an order is placed and save to database."""
+    global inventory
+    inventory = db.get_inventory() # Refresh
+    
     for item, quantity in order.items():
         if item in inventory:
-            inventory[item] -= quantity
-            print(f"Updated {item} stock: {inventory[item]} remaining.")
+            inventory[item]['qty'] -= quantity
+    
+    # Save updated inventory to DB
+    db.save_inventory(inventory)
+

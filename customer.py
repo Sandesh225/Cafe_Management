@@ -1,46 +1,51 @@
-import json
-import os
+from utils import print_error, print_success, CustomerNotFoundError
+from models import Customer
+from typing import Dict, Optional
+import db
+import config
 
-customers = {}
+def get_customer(customer_id: str) -> Customer:
+    """Retrieve a customer by ID from database. Raises CustomerNotFoundError if not found."""
+    data = db.get_customer(customer_id)
+    if not data:
+        raise CustomerNotFoundError(f"Customer with ID {customer_id} not found.")
+    return Customer(**data)
 
-def load_customers():
-    """Load existing customers from the file, or return an empty dict if none exists."""
-    if os.path.exists("customers.json"):
-        with open("customers.json", "r") as file:
-            try:
-                return json.load(file)
-            except json.JSONDecodeError:
-                return {}  # Return empty dictionary if the file is corrupt
-    return {}
-
-def save_customers():
-    """Save customer data without overwriting the existing data."""
-    with open("customers.json", "w") as file:
-        json.dump(customers, file, indent=4)
-        print("Customer data saved.")
-
-def add_new_customer(customer_id, name):
+def add_new_customer(customer_id: str, name: str) -> None:
     """Add new customer if they do not exist in the system."""
-    customers_data = load_customers()
-    if customer_id not in customers_data:
-        customers[customer_id] = {'name': name, 'orders': [], 'loyalty_points': 0}
-        print(f'Customer {name} added successfully.')
+    data = db.get_customer(customer_id)
+    if not data:
+        new_cust = Customer(id=customer_id, name=name)
+        db.save_customer(new_cust.model_dump())
+        print_success(f"Customer {name} added successfully.")
     else:
-        print(f'Customer ID {customer_id} already exists.')
+        print_success(f"Welcome back, {data['name']}!")
 
-def add_order(order, customer_id):
-    """Add order and update loyalty points for existing customers."""
-    if customer_id in customers:
-        customers[customer_id]['orders'].append(order)
-        customers[customer_id]['loyalty_points'] += 1
-        print(f"Order {order} added for {customers[customer_id]['name']}.")
+def add_order_to_customer(customer_id: str, order_items: Dict[str, int]) -> None:
+    """Add order and update loyalty points for customers."""
+    customer = get_customer(customer_id)
+    customer.orders.append(order_items)
+    customer.loyalty_points += 1
+    db.save_customer(customer.model_dump())
 
-def apply_loyalty_discount(customer_id, total_amount):
-    """Apply a discount based on loyalty points (1 point per order, 10 points = 10% off)."""
-    if customer_id in customers:
-        points = customers[customer_id]['loyalty_points']
-        discount = min(points // 10, 50)  # Max discount 50%
-        discounted_total = total_amount * (1 - discount / 100)
-        print(f"Loyalty Discount Applied: {discount}% off")
-        return discounted_total
+def apply_loyalty_discount(customer_id: str, total_amount: float) -> float:
+    """Apply a discount based on loyalty tiers from config."""
+    try:
+        customer = get_customer(customer_id)
+        points = customer.loyalty_points
+        
+        tiers = config.get_loyalty_tiers()
+        discount = 0
+        for tier_pts, tier_disc in reversed(tiers):
+            if points >= tier_pts:
+                discount = tier_disc
+                break
+        
+        if discount > 0:
+            discounted_total = total_amount * (1 - discount / 100)
+            from utils import console
+            console.print(f"[success]Loyalty Discount Applied: {discount}% off![/success]")
+            return discounted_total
+    except CustomerNotFoundError:
+        pass
     return total_amount
