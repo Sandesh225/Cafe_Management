@@ -95,6 +95,14 @@ def main_loop():
             input("\nPress Enter to try again...")
 
 
+def handle_payment(total: float) -> str:
+    """Handle customer payment and return payment method."""
+    print_info(f"\nTotal Amount Due: ${total:.2f}")
+    print("Select Payment Method:")
+    print("1. Cash | 2. Card | 3. Mobile Pay")
+    choice = input("Choice (default Cash): ").strip()
+    return {"1": "Cash", "2": "Card", "3": "Mobile Pay"}.get(choice, "Cash")
+
 def handle_customer_order():
     """Handle the end-to-end customer ordering process with table & kitchen integration."""
     try:
@@ -143,11 +151,14 @@ def handle_customer_order():
         
         confirm = input("\nConfirm order? (yes/no): ").lower()
         if confirm == 'yes':
+            # Payment Step
+            payment_method = handle_payment(final_total)
+            
             # Assign table to order (using a temporary order ID or just a placeholder)
             order_id = f"ORD-{datetime.now().strftime('%H%M%S')}"
             tables.assign_table(table_id, order_id)
             
-            save_order(order_items, final_total)
+            save_order(order_items, final_total, payment_method)
             add_order_to_customer(customer_id, order_items)
             update_inventory(order_items)
             

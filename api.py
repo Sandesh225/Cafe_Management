@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import db
 import customer
 import inventory
@@ -10,6 +11,7 @@ import config
 from datetime import datetime
 
 app = Flask(__name__)
+CORS(app)
 
 @app.route('/menu', methods=['GET'])
 def get_menu():
@@ -117,18 +119,73 @@ def place_order():
         "items": order_dict
     }
     
-    if db.save_order(order):
-        inventory.update_inventory(order_dict)
-        customer.add_order_to_customer(cust_id, order_dict)
-        ticket = kitchen.add_ticket(order, table_id)
-        return jsonify({
-            "order_id": order_id,
-            "total": round(discounted_total, 2),
-            "discount": round(discount, 2),
-            "ticket_id": ticket['ticket_id']
-        })
-    
+    try:
+        if db.save_order(order):
+            inventory.update_inventory(order_dict)
+            customer.add_new_customer(cust_id, "Walk-in/Web Customer")
+            customer.add_order_to_customer(cust_id, order_dict)
+            
+            # SPLIT TICKET LOGIC
+            drinks = {}
+            food = {}
+            for item in items:
+                category = menu.get(item['name'], {}).get('category', 'General')
+                if category in ['Coffee', 'Tea', 'Drinks', 'Beverage']:
+                    drinks[item['name']] = item['qty']
+                else:
+                    food[item['name']] = item['qty']
+            
+            tickets = []
+            if drinks:
+                t_order = dict(order)
+                t_order['items'] = drinks
+                ticket = kitchen.add_ticket(t_order, table_id)
+                # Override ticket_id to append routing
+                ticket['ticket_id'] = ticket['ticket_id'] + '-BARISTA'
+                kitchen.update_ticket_id_and_resave(ticket)
+                tickets.append(ticket['ticket_id'])
+                
+            if food:
+                t_order = dict(order)
+                t_order['items'] = food
+                ticket = kitchen.add_ticket(t_order, table_id)
+                ticket['ticket_id'] = ticket['ticket_id'] + '-KITCHEN'
+                kitchen.update_ticket_id_and_resave(ticket)
+                tickets.append(ticket['ticket_id'])
+
+            if table_id:
+                tables.assign_table(table_id, order_id)
+                
+            return jsonify({
+                "order_id": order_id,
+                "total": round(discounted_total, 2),
+                "discount": round(discount, 2),
+                "ticket_ids": tickets
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
     return jsonify({"error": "Failed to save order"}), 500
+
+@app.route('/tables/<table_id>', methods=['PUT'])
+def update_table_status(table_id):
+    data = request.json
+    status = data.get('status')
+    if status == 'free':
+        if tables.free_table(table_id):
+            return jsonify({"ok": True, "status": "free"})
+    elif status == 'occupied':
+        if tables.assign_table(table_id, data.get('order_id', 'MANUAL')):
+            return jsonify({"ok": True, "status": "occupied"})
+    return jsonify({"error": "Failed to update table status"}), 500
+
+@app.route('/queue/<ticket_id>', methods=['PUT'])
+def update_ticket_status(ticket_id):
+    data = request.json
+    status = data.get('status')
+    if kitchen.update_status(ticket_id, status):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Failed to update"}), 500
 
 if __name__ == '__main__':
     port = config.get_int("API_PORT")

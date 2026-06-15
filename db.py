@@ -21,13 +21,12 @@ def init_db():
     """Create tables if they don't exist."""
     cursor = db_conn.cursor()
     
-    # Tables
+    # Table schema with correct column names
     cursor.executescript("""
-    DROP TABLE IF EXISTS customers;
-    CREATE TABLE customers (
+    CREATE TABLE IF NOT EXISTS customers (
         id TEXT PRIMARY KEY,
         name TEXT,
-        loyalty_points INTEGER,
+        loyalty_points INTEGER DEFAULT 0,
         orders_json TEXT,
         created_at TEXT
     );
@@ -39,6 +38,7 @@ def init_db():
         staff_id TEXT,
         total REAL,
         discount REAL,
+        payment_method TEXT,
         timestamp TEXT,
         items_json TEXT
     );
@@ -54,7 +54,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS inventory (
         item TEXT PRIMARY KEY,
         qty INTEGER,
-        reorder_threshold INTEGER
+        reorder_threshold INTEGER DEFAULT 10
     );
     
     CREATE TABLE IF NOT EXISTS staff (
@@ -62,7 +62,7 @@ def init_db():
         name TEXT,
         pin_hash TEXT,
         role TEXT,
-        active INTEGER
+        active INTEGER DEFAULT 1
     );
     
     CREATE TABLE IF NOT EXISTS shifts (
@@ -94,7 +94,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS menu (
         item TEXT PRIMARY KEY,
         price REAL,
-        category TEXT
+        category TEXT DEFAULT 'General'
     );
     """)
     db_conn.commit()
@@ -125,14 +125,16 @@ def migrate_from_json():
                 records = transform(data)
                 count = 0
                 for record in records:
-                    # Specific fixes for table names or nested data
-                    if table == 'orders' and 'items' in record:
-                         record['items_json'] = json.dumps(record.pop('items'))
-                    if table == 'kitchen' and 'items' in record:
-                         record['items_json'] = json.dumps(record.pop('items'))
-                         
-                    if upsert(table, record):
-                        count += 1
+                    # Generic handling of field conversions
+                    if table == 'customers':
+                        save_customer(record)
+                    elif table == 'orders':
+                        save_order(record)
+                    elif table == 'kitchen':
+                        save_ticket(record)
+                    else:
+                        upsert(table, record)
+                    count += 1
                 
                 print(f"Migrated {count} records from {filename} into {table}.")
                 os.rename(filename, f"{filename}.bak")
@@ -142,6 +144,12 @@ def migrate_from_json():
     print("--- Migration Finished ---")
 
 # --- GENERIC CRUD ---
+def get_table_columns(table: str) -> List[str]:
+    """Fetch column names for a table."""
+    cursor = db_conn.cursor()
+    cursor.execute(f"PRAGMA table_info({table})")
+    return [row[1] for row in cursor.fetchall()]
+
 def get_all(table: str) -> List[Dict]:
     """Fetch all rows from a table."""
     cursor = db_conn.cursor()
@@ -156,14 +164,17 @@ def get_one(table: str, pk_col: str, pk_val: Any) -> Optional[Dict]:
     return dict(row) if row else None
 
 def upsert(table: str, record: Dict) -> bool:
-    """Insert or replace a record in a table."""
-    columns = list(record.keys())
+    """Insert or replace a record in a table, filtering out unknown columns."""
+    valid_cols = get_table_columns(table)
+    filtered_record = {k: v for k, v in record.items() if k in valid_cols}
+    
+    columns = list(filtered_record.keys())
     placeholders = ", ".join(["?"] * len(columns))
     col_str = ", ".join(columns)
     
     sql = f"INSERT OR REPLACE INTO {table} ({col_str}) VALUES ({placeholders})"
     try:
-        db_conn.execute(sql, tuple(record.values()))
+        db_conn.execute(sql, tuple(filtered_record.values()))
         db_conn.commit()
         return True
     except sqlite3.Error as e:

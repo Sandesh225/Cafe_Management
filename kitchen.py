@@ -36,6 +36,15 @@ def add_ticket(order: dict, table_label: str) -> dict:
     db.save_ticket(ticket)
     return ticket
 
+def update_ticket_id_and_resave(ticket: dict) -> None:
+    """Updates a ticket ID. First deletes old ticket if it exists, then saves new."""
+    # We don't know the old ticket ID easily here unless we keep track.
+    # Actually, add_ticket saves it with the 8-char UUID.
+    # We just delete the 8-char uuid one.
+    old_id = ticket['ticket_id'].split('-')[0]
+    db.delete('kitchen', 'ticket_id', old_id)
+    db.save_ticket(ticket)
+
 def update_status(ticket_id: str, new_status: str) -> bool:
     """Update the status of a kitchen ticket."""
     ticket = db.get_one('kitchen', 'ticket_id', ticket_id)

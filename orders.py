@@ -39,13 +39,14 @@ def calculate_total(order_items: Dict[str, int]) -> float:
     """Calculate the total cost of the order."""
     return sum(menu[item] * quantity for item, quantity in order_items.items())
 
-def save_order(order_items: Dict[str, int], total: float) -> None:
+def save_order(order_items: Dict[str, int], total: float, payment_method: str = "Cash") -> None:
     """Save the current order to the database."""
     from uuid import uuid4
     order_id = f"ORD-{str(uuid4())[:8]}"
     new_order = {
         "order_id": order_id,
         "total": total,
+        "payment_method": payment_method,
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "items": order_items
     }
